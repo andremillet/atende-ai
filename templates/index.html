@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -55,6 +16,50 @@
         .modal { @apply fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50; }
         .modal-content { @apply bg-white rounded-lg p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto; }
         .alert { @apply text-yellow-600 text-sm mt-1; }
+        
+        .command-recognized {
+            background-color: #e8f5e9;
+            border-left: 4px solid #2E936C;
+            padding: 8px;
+            margin: 8px 0;
+            border-radius: 4px;
+        }
+        .command-error {
+            background-color: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 8px;
+            margin: 8px 0;
+            border-radius: 4px;
+        }
+        .command-icon {
+            margin-right: 8px;
+            font-weight: bold;
+        }
+        .medication-item {
+            display: inline-block;
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 4px;
+            padding: 2px 6px;
+            margin: 2px;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        .adjustment-input {
+            position: relative;
+        }
+        .adjustment-input::before {
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-weight: bold;
+        }
+        .adjustment-input.add::before { content: "+"; color: #22c55e; }
+        .adjustment-input.remove::before { content: "-"; color: #ef4444; }
+        .adjustment-input.increment::before { content: "++"; color: #eab308; }
+        .adjustment-input.decrement::before { content: "--"; color: #f97316; }
+        .adjustment-input.modify::before { content: "!"; color: #6366f1; }
     </style>
 </head>
 <body class="bg-gray-100 flex h-screen">
@@ -153,12 +158,27 @@
                     <h2 class="section-title">CONDUTA</h2>
                     <textarea id="conduta-text" class="w-full p-2 border rounded" rows="4" placeholder="Descreva as ações..."></textarea>
                     <div id="conduta-items" class="space-y-2 mt-2"></div>
-                    <button type="button" onclick="addItem('conduta', '+')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar medicação (+)</button>
-                    <button type="button" onclick="addItem('conduta', '++')" class="mt-2 text-sm text-blue-600 hover:underline">+ Incrementar dose (++)</button>
-                    <button type="button" onclick="addItem('conduta', '-')" class="mt-2 text-sm text-blue-600 hover:underline">+ Suspender medicação (-)</button>
-                    <button type="button" onclick="addItem('conduta', '!')" class="mt-2 text-sm text-blue-600 hover:underline">+ Alterar forma/administração (!)</button>
-                    <button type="button" onclick="addItem('conduta', '--')" class="mt-2 text-sm text-blue-600 hover:underline">+ Reduzir dose (--)</button>
                     <button type="button" onclick="addItem('conduta', 'text')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar texto livre</button>
+                    
+                    <div class="mt-4 mb-2 border-t pt-3">
+                        <h3 class="text-md font-medium text-gray-700">Comandos de prescrição</h3>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <button type="button" onclick="addCommandItem('prescrever')" class="px-3 py-1 bg-green-100 text-green-700 hover:bg-green-200 rounded text-sm">prescrever medicação</button>
+                            <button type="button" onclick="addCommandItem('solicitar')" class="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded text-sm">solicitar exame</button>
+                            <button type="button" onclick="addCommandItem('encaminhar')" class="px-3 py-1 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded text-sm">encaminhar</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 mb-2 border-t pt-3">
+                        <h3 class="text-md font-medium text-gray-700">Ajustes de medicação</h3>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <button type="button" onclick="addAdjustment('+')" class="px-3 py-1 bg-green-100 text-green-700 hover:bg-green-200 rounded text-sm">+ Adicionar medicação</button>
+                            <button type="button" onclick="addAdjustment('-')" class="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-sm">- Suspender medicação</button>
+                            <button type="button" onclick="addAdjustment('++')" class="px-3 py-1 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded text-sm">++ Aumentar dose</button>
+                            <button type="button" onclick="addAdjustment('--')" class="px-3 py-1 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded text-sm">-- Diminuir dose</button>
+                            <button type="button" onclick="addAdjustment('!')" class="px-3 py-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded text-sm">! Alterar forma/administração</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Visualização Prévia -->
@@ -348,7 +368,7 @@
         function addItem(section, type, defaultValue = '') {
             const container = document.getElementById(`${section}-items`);
             const div = document.createElement('div');
-            div.className = 'flex items-center space-x-2';
+            div.className = 'flex items-center space-x-2 mb-2';
             const input = document.createElement('input');
             input.type = 'text';
             input.value = defaultValue;
@@ -388,6 +408,312 @@
             div.appendChild(input);
             div.appendChild(removeBtn);
             container.appendChild(div);
+        }
+        
+        // Função para adicionar um item de comando (prescrever, solicitar, encaminhar)
+        function addCommandItem(commandType) {
+            const container = document.getElementById('conduta-items');
+            const div = document.createElement('div');
+            div.className = 'flex items-center space-x-2 mb-2';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'flex-1 p-2 border rounded';
+            input.dataset.type = 'command';
+            input.dataset.commandType = commandType;
+            
+            // Definir placeholder baseado no tipo de comando
+            switch(commandType) {
+                case 'prescrever':
+                    input.placeholder = 'Ex: prescrever paracetamol 500mg 8/8h 5 dias';
+                    break;
+                case 'solicitar':
+                    input.placeholder = 'Ex: solicitar hemograma completo';
+                    break;
+                case 'encaminhar':
+                    input.placeholder = 'Ex: encaminhar para cardiologia';
+                    break;
+            }
+            
+            // Adicionar evento de blur para validar e formatar o comando
+            input.addEventListener('blur', function() {
+                validateCommand(this);
+            });
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remover';
+            removeBtn.className = 'text-red-600 hover:underline';
+            removeBtn.onclick = () => div.remove();
+            
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        // Função para adicionar um ajuste de medicação (+, -, ++, --, !)
+        function addAdjustment(adjustmentType) {
+            const container = document.getElementById('conduta-items');
+            const div = document.createElement('div');
+            div.className = 'flex items-center space-x-2 mb-2';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'flex-1 p-2 pl-8 border rounded adjustment-input';
+            input.dataset.type = adjustmentType;
+            
+            // Adicionar classe CSS para o ícone visual
+            switch(adjustmentType) {
+                case '+':
+                    input.classList.add('add');
+                    input.placeholder = 'Adicionar medicação (ex: atenolol 25mg)';
+                    break;
+                case '-':
+                    input.classList.add('remove');
+                    input.placeholder = 'Suspender medicação (ex: losartana)';
+                    break;
+                case '++':
+                    input.classList.add('increment');
+                    input.placeholder = 'Aumentar dose (ex: atenolol 50mg)';
+                    break;
+                case '--':
+                    input.classList.add('decrement');
+                    input.placeholder = 'Diminuir dose (ex: fluoxetina 10mg)';
+                    break;
+                case '!':
+                    input.classList.add('modify');
+                    input.placeholder = 'Alterar medicação (ex: venlafaxina > venlift OD 150mg)';
+                    break;
+            }
+            
+            // Adicionar evento para mostrar medicações disponíveis
+            input.addEventListener('focus', function() {
+                showAvailableMedications(this);
+            });
+            
+            // Adicionar evento de blur para validar e formatar o ajuste
+            input.addEventListener('blur', function() {
+                validateAdjustment(this);
+            });
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remover';
+            removeBtn.className = 'text-red-600 hover:underline';
+            removeBtn.onclick = () => div.remove();
+            
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        // Função para mostrar medicações disponíveis
+        function showAvailableMedications(inputElement) {
+            // Obter medicações atuais do paciente
+            const medicationsEl = document.getElementById('medications');
+            if (!medicationsEl) return;
+            
+            // Verificar se já existe um contêiner para as sugestões
+            let suggestionsContainer = inputElement.parentNode.querySelector('.medications-suggestions');
+            if (!suggestionsContainer) {
+                suggestionsContainer = document.createElement('div');
+                suggestionsContainer.className = 'medications-suggestions absolute bg-white border rounded p-2 mt-1 z-10 shadow-md';
+                suggestionsContainer.style.width = inputElement.offsetWidth + 'px';
+                suggestionsContainer.style.display = 'none';
+                inputElement.parentNode.appendChild(suggestionsContainer);
+            }
+            
+            // Limpar sugestões
+            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.style.display = 'block';
+            
+            // Adicionar medicações existentes como sugestões
+            const medications = medicationsEl.querySelectorAll('li');
+            if (medications.length === 0) {
+                const noMeds = document.createElement('div');
+                noMeds.className = 'text-sm text-gray-500 p-1';
+                noMeds.textContent = 'Nenhuma medicação ativa';
+                suggestionsContainer.appendChild(noMeds);
+            } else {
+                medications.forEach(med => {
+                    const medText = med.textContent.trim();
+                    const medItem = document.createElement('div');
+                    medItem.className = 'medication-item hover:bg-gray-100';
+                    medItem.textContent = medText;
+                    medItem.onclick = () => {
+                        // Extrair apenas o nome da medicação (sem data)
+                        const medName = medText.split('[')[0].trim();
+                        inputElement.value = medName;
+                        suggestionsContainer.style.display = 'none';
+                    };
+                    suggestionsContainer.appendChild(medItem);
+                });
+            }
+            
+            // Adicionar evento para esconder sugestões ao clicar fora
+            document.addEventListener('click', function hideHandler(e) {
+                if (!suggestionsContainer.contains(e.target) && e.target !== inputElement) {
+                    suggestionsContainer.style.display = 'none';
+                    document.removeEventListener('click', hideHandler);
+                }
+            });
+        }
+
+        // Função para validar e formatar ajustes de medicação
+        function validateAdjustment(inputElement) {
+            const value = inputElement.value.trim();
+            const adjustmentType = inputElement.dataset.type;
+            
+            // Se vazio, não validar
+            if (!value) return;
+            
+            // Verificar formato específico de cada ajuste
+            let isValid = true;
+            let message = '';
+            
+            switch (adjustmentType) {
+                case '+':
+                    // Verifica se contém pelo menos um nome de medicação
+                    if (value.length < 3) {
+                        isValid = false;
+                        message = 'Medicação inválida';
+                    } else {
+                        message = 'Medicação adicionada';
+                    }
+                    break;
+                case '-':
+                    // Verifica se a medicação existe na lista atual
+                    const medicationsEl = document.getElementById('medications');
+                    if (medicationsEl) {
+                        const medications = medicationsEl.querySelectorAll('li');
+                        const medicationExists = Array.from(medications).some(med => {
+                            const medName = med.textContent.split('[')[0].trim().toLowerCase();
+                            return medName.includes(value.toLowerCase());
+                        });
+                        
+                        if (!medicationExists) {
+                            isValid = false;
+                            message = 'Medicação não encontrada na lista atual';
+                        } else {
+                            message = 'Medicação suspensa';
+                        }
+                    }
+                    break;
+                case '++':
+                case '--':
+                    // Verifica se contém nome e dosagem
+                    const hasDosage = value.match(/\d+\s*(mg|g|ml|mcg)/i);
+                    if (!hasDosage) {
+                        isValid = false;
+                        message = 'Falta especificar a dosagem';
+                    } else {
+                        message = adjustmentType === '++' ? 'Dose aumentada' : 'Dose diminuída';
+                    }
+                    break;
+                case '!':
+                    // Verifica se contém o formato de alteração (med > nova_forma)
+                    const hasChangeFormat = value.includes('>');
+                    if (!hasChangeFormat) {
+                        isValid = false;
+                        message = 'Utilize o formato: medicação > nova forma';
+                    } else {
+                        message = 'Forma alterada';
+                    }
+                    break;
+            }
+            
+            // Exibir feedback visual
+            if (isValid) {
+                inputElement.classList.add('command-recognized');
+                inputElement.classList.remove('command-error');
+            } else {
+                inputElement.classList.add('command-error');
+                inputElement.classList.remove('command-recognized');
+            }
+            
+            showCommandFeedback(inputElement, message);
+        }
+
+        // Função para validar e destacar comandos
+        function validateCommand(inputElement) {
+            const value = inputElement.value.trim();
+            const commandType = inputElement.dataset.commandType;
+            
+            // Se vazio, não validar
+            if (!value) return;
+            
+            // Remover classes existentes
+            inputElement.classList.remove('command-recognized', 'command-error');
+            
+            // Verificar se o comando começa com o tipo correto
+            if (value.toLowerCase().startsWith(commandType)) {
+                // Comando reconhecido
+                inputElement.classList.add('command-recognized');
+                
+                // Verificar formato específico de cada comando
+                if (commandType === 'prescrever') {
+                    const medicationMatch = value.match(/prescrever\s+([a-zA-Z0-9\s]+)(?:\s+(\d+\s*mg))?(?:\s+(\d+\/\d+h))?(?:\s+(\d+\s+dias))?/i);
+                    
+                    if (medicationMatch) {
+                        // Tudo certo, o formato está correto
+                        const medication = medicationMatch[1]?.trim();
+                        const dosage = medicationMatch[2] || '';
+                        const interval = medicationMatch[3] || '';
+                        const duration = medicationMatch[4] || '';
+                        
+                        // Verificar dosagem (exemplo simples)
+                        if (dosage && parseInt(dosage) > 1000) {
+                            inputElement.classList.add('command-error');
+                            showCommandFeedback(inputElement, 'Atenção: Dosagem alta detectada!');
+                        } else {
+                            showCommandFeedback(inputElement, 'Prescrição reconhecida');
+                        }
+                    } else {
+                        inputElement.classList.add('command-error');
+                        showCommandFeedback(inputElement, 'Formato inválido para prescrição');
+                    }
+                } else if (commandType === 'solicitar') {
+                    const examMatch = value.match(/solicitar\s+(.+)/i);
+                    
+                    if (examMatch) {
+                        showCommandFeedback(inputElement, 'Solicitação de exame reconhecida');
+                    } else {
+                        inputElement.classList.add('command-error');
+                        showCommandFeedback(inputElement, 'Formato inválido para solicitação');
+                    }
+                } else if (commandType === 'encaminhar') {
+                    const referralMatch = value.match(/encaminhar\s+(para\s+)?(.+)/i);
+                    
+                    if (referralMatch) {
+                        showCommandFeedback(inputElement, 'Encaminhamento reconhecido');
+                    } else {
+                        inputElement.classList.add('command-error');
+                        showCommandFeedback(inputElement, 'Formato inválido para encaminhamento');
+                    }
+                }
+            } else {
+                // Comando não reconhecido
+                inputElement.classList.add('command-error');
+                showCommandFeedback(inputElement, `Comando deve começar com "${commandType}"`);
+            }
+        }
+
+        // Função para exibir feedback visual do comando
+        function showCommandFeedback(inputElement, message) {
+            let feedbackDiv = inputElement.nextElementSibling.nextElementSibling;
+            
+            if (!feedbackDiv || !feedbackDiv.classList.contains('command-feedback')) {
+                feedbackDiv = document.createElement('div');
+                feedbackDiv.className = 'command-feedback text-sm ml-2';
+                
+                // Inserir após o botão de remover
+                inputElement.parentNode.insertBefore(feedbackDiv, inputElement.nextElementSibling.nextElementSibling);
+            }
+            
+            feedbackDiv.textContent = message;
+            feedbackDiv.className = inputElement.classList.contains('command-error') 
+                ? 'command-feedback text-sm ml-2 text-red-600' 
+                : 'command-feedback text-sm ml-2 text-green-600';
         }
 
         // Atualiza a visualização prévia
@@ -437,9 +763,31 @@
 
             content += `\n[CONDUTA]\n`;
             content += document.getElementById('conduta-text').value + '\n';
-            document.querySelectorAll('#conduta-items input').forEach(input => {
-                const type = input.dataset.type;
-                content += type === 'text' ? `${input.value}\n` : `${type}${input.value} [${currentDate}]\n`;
+            
+            // Processar ajustes de medicação com operadores especiais
+            document.querySelectorAll('#conduta-items input[data-type="+"], #conduta-items input[data-type="-"], #conduta-items input[data-type="++"], #conduta-items input[data-type="--"], #conduta-items input[data-type="!"]').forEach(input => {
+                const adjustmentType = input.dataset.type;
+                const value = input.value.trim();
+                
+                // Adicionar ajuste formatado
+                if (value) {
+                    content += `${adjustmentType}${value} [${currentDate}]\n`;
+                }
+            });
+            
+            // Processar comandos de prescrição, solicitação e encaminhamento
+            document.querySelectorAll('#conduta-items input[data-type="command"]').forEach(input => {
+                const commandType = input.dataset.commandType;
+                const value = input.value.trim();
+                
+                // Adicionar comando formatado
+                if (value) {
+                    content += `>${value} [${currentDate}]\n`;
+                }
+            });
+            
+            document.querySelectorAll('#conduta-items input[data-type="text"]').forEach(input => {
+                content += `${input.value}\n`;
             });
 
             document.getElementById('preview').textContent = content;

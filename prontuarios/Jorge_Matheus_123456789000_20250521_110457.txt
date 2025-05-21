@@ -1,0 +1,15 @@
+[ANAMNESE]
+
+!!MED fluoxetina 20mg[21/05/2025];lamotrigina 100mg[21/05/2025]
+!!HPP TOD; autismo infantil
+
+[EXAME FISICO]
+sem alterações signifficativas
+
+[HIPOTESE DIAGNOSTICA]
+transtorno do espectro autista
+
+
+[CONDUTA]
+-lamotrigina
+>paracetamol 500mg 8/8 horas 7 dias [21/05/2025]

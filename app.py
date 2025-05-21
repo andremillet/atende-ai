@@ -94,6 +94,120 @@ def parse_prontuario(content):
 
     return sections, persistent_items
 
+def process_command(command_line):
+    """
+    Processa uma linha de comando do tipo prescrever, solicitar ou encaminhar
+    ou ajustes de medicação (+, -, ++, --, !)
+    """
+    result = {
+        'type': 'unknown',
+        'content': command_line,
+        'recognized': False
+    }
+    
+    # Processar comandos prefixados com >
+    if command_line.startswith('>'):
+        command_text = command_line[1:].strip()
+        
+        # Comandos prescrever
+        if command_text.lower().startswith('prescrever'):
+            result['type'] = 'prescription'
+            result['recognized'] = True
+            
+            # Extrair medicação, dose, etc.
+            match = re.match(r'prescrever\s+([a-zA-Z0-9\s]+)(?:\s+(\d+\s*mg))?(?:\s+(\d+\/\d+h))?(?:\s+(\d+\s+dias))?(?:\s*\[(.+)\])?', 
+                            command_text, re.IGNORECASE)
+            
+            if match:
+                result['medication'] = match.group(1).strip() if match.group(1) else ''
+                result['dosage'] = match.group(2) if match.group(2) else ''
+                result['interval'] = match.group(3) if match.group(3) else ''
+                result['duration'] = match.group(4) if match.group(4) else ''
+                result['date'] = match.group(5) if match.group(5) else datetime.now().strftime('%d/%m/%Y')
+                
+        # Comandos solicitar
+        elif command_text.lower().startswith('solicitar'):
+            result['type'] = 'exam'
+            result['recognized'] = True
+            
+            match = re.match(r'solicitar\s+(.+?)(?:\s*\[(.+)\])?$', command_text, re.IGNORECASE)
+            if match:
+                result['exam'] = match.group(1).strip() if match.group(1) else ''
+                result['date'] = match.group(2) if match.group(2) else datetime.now().strftime('%d/%m/%Y')
+                
+        # Comandos encaminhar
+        elif command_text.lower().startswith('encaminhar'):
+            result['type'] = 'referral'
+            result['recognized'] = True
+            
+            match = re.match(r'encaminhar\s+(para\s+)?(.+?)(?:\s*\[(.+)\])?$', command_text, re.IGNORECASE)
+            if match:
+                result['specialty'] = match.group(2).strip() if match.group(2) else ''
+                result['date'] = match.group(3) if match.group(3) else datetime.now().strftime('%d/%m/%Y')
+    
+    # Processar ajustes de medicação
+    elif command_line.startswith(('+', '-', '!')) and not command_line.startswith(('++', '--')):
+        op = command_line[0]
+        rest = command_line[1:].strip()
+        
+        if op == '+':
+            result['type'] = 'add_medication'
+            result['recognized'] = True
+            
+            # Extrair medicação e data
+            match = re.match(r'(.+?)(?:\s*\[(.+)\])?$', rest)
+            if match:
+                result['medication'] = match.group(1).strip()
+                result['date'] = match.group(2) if match.group(2) else datetime.now().strftime('%d/%m/%Y')
+                
+        elif op == '-':
+            result['type'] = 'remove_medication'
+            result['recognized'] = True
+            
+            # Extrair medicação e data
+            match = re.match(r'(.+?)(?:\s*\[(.+)\])?$', rest)
+            if match:
+                result['medication'] = match.group(1).strip()
+                result['date'] = match.group(2) if match.group(2) else datetime.now().strftime('%d/%m/%Y')
+                
+        elif op == '!':
+            result['type'] = 'change_medication'
+            result['recognized'] = True
+            
+            # Extrair medicação, nova forma e data
+            match = re.match(r'(.+?)\s*>\s*(.+?)(?:\s*\[(.+)\])?$', rest)
+            if match:
+                result['from_medication'] = match.group(1).strip()
+                result['to_medication'] = match.group(2).strip()
+                result['date'] = match.group(3) if match.group(3) else datetime.now().strftime('%d/%m/%Y')
+    
+    # Processar ++ e --
+    elif command_line.startswith(('++', '--')):
+        op = command_line[:2]
+        rest = command_line[2:].strip()
+        
+        if op == '++':
+            result['type'] = 'increase_dose'
+            result['recognized'] = True
+            
+            # Extrair medicação, nova dosagem e data
+            match = re.match(r'(.+?)(?:\s*\[(.+)\])?$', rest)
+            if match:
+                result['medication'] = match.group(1).strip()
+                result['date'] = match.group(2) if match.group(2) else datetime.now().strftime('%d/%m/%Y')
+                
+        elif op == '--':
+            result['type'] = 'decrease_dose'
+            result['recognized'] = True
+            
+            # Extrair medicação, nova dosagem e data
+            match = re.match(r'(.+?)(?:\s*\[(.+)\])?$', rest)
+            if match:
+                result['medication'] = match.group(1).strip()
+                result['date'] = match.group(2) if match.group(2) else datetime.now().strftime('%d/%m/%Y')
+    
+    return result
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -179,9 +293,39 @@ def save_prontuario():
         if not is_edit:
             c.execute('INSERT INTO prontuarios (cpf, filename, created_at) VALUES (?, ?, ?)',
                       (cpf, filename, datetime.now()))
+
+        # Processar comandos de prescrição, solicitação e encaminhamento
+        prescriptions = []
+        exams = []
+        referrals = []
+        medication_adjustments = []
+
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.startswith('>') or line.startswith(('+', '-', '!', '++', '--')):
+                cmd_result = process_command(line)
+                if cmd_result['recognized']:
+                    if cmd_result['type'] == 'prescription':
+                        prescriptions.append(cmd_result)
+                    elif cmd_result['type'] == 'exam':
+                        exams.append(cmd_result)
+                    elif cmd_result['type'] == 'referral':
+                        referrals.append(cmd_result)
+                    elif cmd_result['type'] in ['add_medication', 'remove_medication', 'change_medication', 'increase_dose', 'decrease_dose']:
+                        medication_adjustments.append(cmd_result)
+
         conn.commit()
 
-    return jsonify({'filename': filename, 'filepath': filepath, 'medication_changes': medication_changes})
+    # Adicionar informações de comandos processados ao retorno
+    return jsonify({
+        'filename': filename, 
+        'filepath': filepath, 
+        'medication_changes': medication_changes,
+        'prescriptions': prescriptions,
+        'exams': exams,
+        'referrals': referrals,
+        'medication_adjustments': medication_adjustments
+    })
 
 @app.route('/get_prontuarios', methods=['POST'])
 def get_prontuarios():
