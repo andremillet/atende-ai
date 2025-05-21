@@ -1,0 +1,15 @@
+[ANAMNESE]
+paciente com queixas de rouquidao, associada a diversos shows
+!!HPP tabagismo
+
+[EXAME FISICO]
+sem alterações significativas no exame fisico
+
+[HIPOTESE DIAGNOSTICA]
+lesao em nervo laringeo recorrente
+
+[CONDUTA]
+gelo e aine
++gelo
++aine
+>>ibuprofeno 600mg 8/8 horas

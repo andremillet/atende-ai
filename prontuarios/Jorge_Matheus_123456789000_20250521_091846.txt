@@ -1,0 +1,14 @@
+[ANAMNESE]
+paciente com queixas de rouquidao, associada a diversos shows
+
+[EXAME FISICO]
+sem alterações significativas no exame fisico
+
+[HIPOTESE DIAGNOSTICA]
+
+
+[CONDUTA]
+gelo e aine
++gelo
++aine
+>ibuprofeno 600mg 8/8 horas

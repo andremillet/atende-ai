@@ -1,0 +1,484 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciar Prontuários Médicos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .section-title { @apply text-xl font-bold text-gray-800 mb-2; }
+        .menu-item { @apply text-gray-700 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer; }
+        .action-item { @apply text-blue-600 font-semibold; }
+        .text-item { @apply text-gray-600; }
+        .preview-box { @apply bg-gray-50 p-4 rounded border border-gray-200 mt-4; }
+        .patient-item { @apply text-gray-700 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer; }
+        .prontuario-item { @apply text-gray-700 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer; }
+        .modal { @apply fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50; }
+        .modal-content { @apply bg-white rounded-lg p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto; }
+        .alert { @apply text-yellow-600 text-sm mt-1; }
+    </style>
+</head>
+<body class="bg-gray-100 flex h-screen">
+    <!-- Menu Lateral -->
+    <aside class="w-64 bg-white shadow-lg p-4">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">Informações Relevantes</h2>
+        <div class="mb-4">
+            <h3 class="text-sm font-medium text-gray-700">Itens Persistentes</h3>
+            <ul id="menu-items" class="space-y-1"></ul>
+        </div>
+        <div>
+            <h3 class="text-sm font-medium text-gray-700">Últimos Atendimentos</h3>
+            <ul id="recent-prontuarios" class="space-y-1"></ul>
+        </div>
+    </aside>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 p-6 overflow-y-auto">
+        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Gerenciar Prontuários Médicos</h1>
+
+            <!-- Busca de Paciente -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700">Buscar Paciente (Nome ou CPF)</label>
+                <input type="text" id="search-query" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex.: Carlos Matheus ou 12345678900">
+                <button onclick="searchPatients()" class="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Buscar</button>
+            </div>
+
+            <!-- Resultados da Busca -->
+            <div id="patients-list" class="mb-6 hidden">
+                <h2 class="text-lg font-semibold text-gray-800 mb-2">Pacientes Encontrados</h2>
+                <ul id="patients" class="space-y-1"></ul>
+            </div>
+
+            <!-- Sugestão de Novo Paciente -->
+            <div id="new-patient-suggestion" class="mb-6 hidden">
+                <p class="text-gray-600">Nenhum paciente encontrado. Deseja criar um novo paciente?</p>
+                <button onclick="startNewPatient()" class="mt-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Criar Novo Paciente</button>
+            </div>
+
+            <!-- Lista de Medicamentos -->
+            <div id="medications-list" class="mb-6 hidden">
+                <h2 class="text-lg font-semibold text-gray-800 mb-2">Medicações de Uso Regular</h2>
+                <ul id="medications" class="space-y-1"></ul>
+            </div>
+
+            <!-- Formulário -->
+            <form id="prontuario-form" class="space-y-6 hidden">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">CPF do Paciente</label>
+                    <input type="text" id="cpf" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex.: 12345678900">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Nome do Paciente</label>
+                    <input type="text" id="patient-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex.: Carlos Matheus">
+                </div>
+
+                <!-- Anamnese -->
+                <div>
+                    <h2 class="section-title">ANAMNESE</h2>
+                    <textarea id="anamnese-text" class="w-full p-2 border rounded" rows="4" placeholder="Descreva o histórico clínico..."></textarea>
+                    <div class="mt-2">
+                        <label class="block text-sm font-medium text-gray-700">Medicações de Uso Regular (nome[data];nome[data])</label>
+                        <input type="text" id="medications-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex.: FLUOXETINA 20MG[12/01/2020];LAMOTRIGINA 100MG[>5A]">
+                        <p id="medication-alert" class="alert hidden">Aviso: Algumas medicações sem data de início usarão a data do atendimento, o que pode ser inconsistente.</p>
+                    </div>
+                    <div class="mt-2">
+                        <label class="block text-sm font-medium text-gray-700">História Patológica Pregressa (separada por ;)</label>
+                        <input type="text" id="hpp" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex.: TOD;AUTISMO INFANTIL">
+                    </div>
+                    <div class="mt-2">
+                        <label class="block text-sm font-medium text-gray-700">Outras Informações Relevantes</label>
+                        <div id="info-items" class="space-y-2 mt-2"></div>
+                        <button type="button" onclick="addInfoItem()" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar informação relevante</button>
+                    </div>
+                </div>
+
+                <!-- Exame Físico -->
+                <div>
+                    <h2 class="section-title">EXAME FISICO</h2>
+                    <textarea id="exame-fisico-text" class="w-full p-2 border rounded" rows="4" placeholder="Descreva os achados..."></textarea>
+                    <div id="exame-fisico-items" class="space-y-2 mt-2"></div>
+                    <button type="button" onclick="addItem('exame-fisico', 'text')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar texto livre</button>
+                </div>
+
+                <!-- Hipótese Diagnóstica -->
+                <div>
+                    <h2 class="section-title">HIPOTESE DIAGNOSTICA</h2>
+                    <textarea id="hipotese-text" class="w-full p-2 border rounded" rows="4" placeholder="Liste os diagnósticos..."></textarea>
+                    <div id="hipotese-items" class="space-y-2 mt-2"></div>
+                    <button type="button" onclick="addItem('hipotese', 'text')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar texto livre</button>
+                </div>
+
+                <!-- Conduta -->
+                <div>
+                    <h2 class="section-title">CONDUTA</h2>
+                    <textarea id="conduta-text" class="w-full p-2 border rounded" rows="4" placeholder="Descreva as ações..."></textarea>
+                    <div id="conduta-items" class="space-y-2 mt-2"></div>
+                    <button type="button" onclick="addItem('conduta', '+')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar medicação (+)</button>
+                    <button type="button" onclick="addItem('conduta', '++')" class="mt-2 text-sm text-blue-600 hover:underline">+ Incrementar dose (++)</button>
+                    <button type="button" onclick="addItem('conduta', '-')" class="mt-2 text-sm text-blue-600 hover:underline">+ Suspender medicação (-)</button>
+                    <button type="button" onclick="addItem('conduta', '!')" class="mt-2 text-sm text-blue-600 hover:underline">+ Alterar forma/administração (!)</button>
+                    <button type="button" onclick="addItem('conduta', '--')" class="mt-2 text-sm text-blue-600 hover:underline">+ Reduzir dose (--)</button>
+                    <button type="button" onclick="addItem('conduta', 'text')" class="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar texto livre</button>
+                </div>
+
+                <!-- Visualização Prévia -->
+                <div>
+                    <h2 class="section-title">Visualização Prévia</h2>
+                    <pre id="preview" class="preview-box"></pre>
+                </div>
+
+                <!-- Botões -->
+                <div class="flex space-x-4">
+                    <button type="button" onclick="updatePreview()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Atualizar Visualização</button>
+                    <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Salvar e Baixar</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <!-- Modal para Visualização -->
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-800">Visualizar Atendimento</h2>
+                <button onclick="closeModal()" class="text-gray-600 hover:text-gray-800">×</button>
+            </div>
+            <pre id="modal-content" class="bg-gray-50 p-4 rounded border border-gray-200"></pre>
+        </div>
+    </div>
+
+    <script>
+        let currentFilename = '';
+        let hasDateMissing = false;
+
+        // Busca pacientes
+        async function searchPatients() {
+            const query = document.getElementById('search-query').value.trim();
+            if (!query) {
+                alert('Por favor, insira um nome ou CPF.');
+                return;
+            }
+            const response = await fetch('/search_patients', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `query=${encodeURIComponent(query)}`
+            });
+            const data = await response.json();
+            const patientsList = document.getElementById('patients-list');
+            const patientsUl = document.getElementById('patients');
+            const newPatientSuggestion = document.getElementById('new-patient-suggestion');
+            patientsUl.innerHTML = '';
+
+            if (data.patients.length > 0) {
+                data.patients.forEach(patient => {
+                    const li = document.createElement('li');
+                    li.className = 'patient-item';
+                    li.textContent = `${patient.name} (CPF: ${patient.cpf})`;
+                    li.onclick = () => selectPatient(patient.cpf, patient.name);
+                    patientsUl.appendChild(li);
+                });
+                patientsList.className = 'mb-6';
+                newPatientSuggestion.className = 'mb-6 hidden';
+            } else {
+                patientsList.className = 'mb-6 hidden';
+                newPatientSuggestion.className = 'mb-6';
+                document.getElementById('cpf').value = query.match(/^\d+$/) ? query : '';
+                document.getElementById('patient-name').value = query.match(/^\d+$/) ? '' : query;
+            }
+        }
+
+        // Seleciona um paciente
+        async function selectPatient(cpf, name) {
+            document.getElementById('cpf').value = cpf;
+            document.getElementById('patient-name').value = name;
+            document.getElementById('prontuario-form').className = 'space-y-6';
+            loadPersistentItems(cpf);
+            loadMedications(cpf);
+            clearForm();
+        }
+
+        // Inicia formulário para novo paciente
+        function startNewPatient() {
+            document.getElementById('prontuario-form').className = 'space-y-6';
+            document.getElementById('menu-items').innerHTML = '';
+            document.getElementById('recent-prontuarios').innerHTML = '';
+            document.getElementById('medications-list').className = 'mb-6 hidden';
+            clearForm();
+        }
+
+        // Carrega itens persistentes e prontuários recentes
+        async function loadPersistentItems(cpf) {
+            const response = await fetch('/get_persistent_items', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `cpf=${encodeURIComponent(cpf)}`
+            });
+            const data = await response.json();
+            const menuUl = document.getElementById('menu-items');
+            menuUl.innerHTML = '';
+            data.items.forEach(({category, item, start_date}) => {
+                if (category !== 'MED') { // Medicamentos são exibidos na div principal
+                    const li = document.createElement('li');
+                    li.className = 'menu-item';
+                    li.textContent = category === 'HPP' ? `HPP: ${item}` : item;
+                    li.onclick = () => addPersistentItem(category, item);
+                    menuUl.appendChild(li);
+                }
+            });
+
+            const recentUl = document.getElementById('recent-prontuarios');
+            recentUl.innerHTML = '';
+            data.prontuarios.forEach(prontuario => {
+                const li = document.createElement('li');
+                li.className = 'prontuario-item';
+                li.textContent = `Atendimento: ${new Date(prontuario.created_at).toLocaleDateString()}`;
+                li.onclick = () => viewProntuario(prontuario.filename);
+                recentUl.appendChild(li);
+            });
+        }
+
+        // Carrega medicamentos na div principal
+        async function loadMedications(cpf) {
+            const response = await fetch('/get_persistent_items', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `cpf=${encodeURIComponent(cpf)}`
+            });
+            const data = await response.json();
+            const medicationsList = document.getElementById('medications-list');
+            const medicationsUl = document.getElementById('medications');
+            medicationsUl.innerHTML = '';
+            const meds = data.items.filter(item => item.category === 'MED');
+            if (meds.length > 0) {
+                meds.forEach(({item, start_date}) => {
+                    const li = document.createElement('li');
+                    li.className = 'text-item';
+                    li.textContent = `${item}${start_date ? `[${start_date}]` : ''}`;
+                    medicationsUl.appendChild(li);
+                });
+                medicationsList.className = 'mb-6';
+            } else {
+                medicationsList.className = 'mb-6 hidden';
+            }
+        }
+
+        // Visualiza prontuário em modal
+        async function viewProntuario(filename) {
+            const response = await fetch(`/load_prontuario/${filename}`);
+            const data = await response.json();
+            if (data.error) {
+                alert('Erro ao carregar o prontuário.');
+                return;
+            }
+            document.getElementById('modal-content').textContent = data.content;
+            document.getElementById('modal').className = 'modal';
+        }
+
+        // Fecha o modal
+        function closeModal() {
+            document.getElementById('modal').className = 'modal hidden';
+        }
+
+        // Adiciona item persistente ao formulário
+        function addPersistentItem(category, item) {
+            if (category === 'HPP') {
+                const current = document.getElementById('hpp').value;
+                document.getElementById('hpp').value = current ? `${current};${item}` : item;
+            } else if (category === 'INFO') {
+                addInfoItem(item);
+            }
+        }
+
+        // Limpa o formulário
+        function clearForm() {
+            ['anamnese', 'exame-fisico', 'hipotese', 'conduta'].forEach(section => {
+                document.getElementById(`${section}-text`).value = '';
+                document.getElementById(`${section}-items`).innerHTML = '';
+            });
+            document.getElementById('medications-input').value = '';
+            document.getElementById('hpp').value = '';
+            document.getElementById('info-items').innerHTML = '';
+            document.getElementById('preview').textContent = '';
+            document.getElementById('medication-alert').className = 'alert hidden';
+            hasDateMissing = false;
+            currentFilename = '';
+        }
+
+        // Adiciona item dinamicamente
+        function addItem(section, type, defaultValue = '') {
+            const container = document.getElementById(`${section}-items`);
+            const div = document.createElement('div');
+            div.className = 'flex items-center space-x-2';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = defaultValue;
+            input.className = 'flex-1 p-2 border rounded';
+            input.placeholder = type === 'text' ? 'Digite o texto...' : `Digite o item (${type})`;
+            input.dataset.type = type;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remover';
+            removeBtn.className = 'text-red-600 hover:underline';
+            removeBtn.onclick = () => div.remove();
+
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        // Adiciona informação relevante
+        function addInfoItem(defaultValue = '') {
+            const container = document.getElementById('info-items');
+            const div = document.createElement('div');
+            div.className = 'flex items-center space-x-2';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = defaultValue;
+            input.className = 'flex-1 p-2 border rounded';
+            input.placeholder = 'Digite a informação relevante...';
+            input.dataset.type = 'info';
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remover';
+            removeBtn.className = 'text-red-600 hover:underline';
+            removeBtn.onclick = () => div.remove();
+
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        // Atualiza a visualização prévia
+        function updatePreview() {
+            const currentDate = new Date().toLocaleDateString('pt-BR');
+            let content = `[ANAMNESE]\n`;
+            content += document.getElementById('anamnese-text').value + '\n';
+            const medications = document.getElementById('medications-input').value;
+            hasDateMissing = false;
+            if (medications) {
+                const medList = medications.split(';').map(med => {
+                    const match = med.match(/(.+?)(?:\[(.+?)\])?$/i);
+                    if (match) {
+                        const [, medName, date] = match;
+                        if (!date) {
+                            hasDateMissing = true;
+                            return `${medName.trim()}[${currentDate}]`;
+                        }
+                        return `${medName.trim()}[${date}]`;
+                    }
+                    return med.trim();
+                });
+                content += `!!MED ${medList.join(';')}\n`;
+            }
+            document.getElementById('medication-alert').className = hasDateMissing ? 'alert' : 'alert hidden';
+            const hpp = document.getElementById('hpp').value;
+            if (hpp) {
+                content += `!!HPP ${hpp}\n`;
+            }
+            document.querySelectorAll('#info-items input').forEach(input => {
+                if (input.value) {
+                    content += `!!${input.value}\n`;
+                }
+            });
+
+            content += `\n[EXAME FISICO]\n`;
+            content += document.getElementById('exame-fisico-text').value + '\n';
+            document.querySelectorAll('#exame-fisico-items input').forEach(input => {
+                content += `${input.value}\n`;
+            });
+
+            content += `\n[HIPOTESE DIAGNOSTICA]\n`;
+            content += document.getElementById('hipotese-text').value + '\n';
+            document.querySelectorAll('#hipotese-items input').forEach(input => {
+                content += `${input.value}\n`;
+            });
+
+            content += `\n[CONDUTA]\n`;
+            content += document.getElementById('conduta-text').value + '\n';
+            document.querySelectorAll('#conduta-items input').forEach(input => {
+                const type = input.dataset.type;
+                content += type === 'text' ? `${input.value}\n` : `${type}${input.value} [${currentDate}]\n`;
+            });
+
+            document.getElementById('preview').textContent = content;
+            return content;
+        }
+
+        // Envia o formulário
+        document.getElementById('prontuario-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const content = updatePreview();
+            const cpf = document.getElementById('cpf').value;
+            const patientName = document.getElementById('patient-name').value;
+
+            if (!cpf || !patientName) {
+                alert('Por favor, insira CPF e nome do paciente.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('cpf', cpf);
+            formData.append('patient_name', patientName);
+            formData.append('content', content);
+            formData.append('is_edit', currentFilename ? 'true' : 'false');
+            formData.append('original_filename', currentFilename);
+
+            const response = await fetch('/save_prontuario', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.filename) {
+                window.location.href = `/download_prontuario/${data.filename}`;
+                alert('Prontuário salvo com sucesso!');
+                selectPatient(cpf, patientName);
+            } else {
+                alert('Erro ao salvar o prontuário.');
+            }
+        };
+    </script>
+</body>
+</html>

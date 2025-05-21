@@ -1,0 +1,14 @@
+[ANAMNESE]
+
+!!MED fluoxetina 20mg; lamotrigina 100mg
+!!HPP TOD; autismo infantil
+
+[EXAME FISICO]
+sem alterações signifficativas
+
+[HIPOTESE DIAGNOSTICA]
+transtorno do espectro autista
+
+
+[CONDUTA]
+

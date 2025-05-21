@@ -1,0 +1,12 @@
+[ANAMNESE]
+paciente com queixas de rouquidao, associada a diversos shows
+!!HPP tabagismo
+
+[EXAME FISICO]
+
+
+[HIPOTESE DIAGNOSTICA]
+
+
+[CONDUTA]
+
